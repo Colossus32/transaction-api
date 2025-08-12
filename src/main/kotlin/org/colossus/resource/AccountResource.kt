@@ -44,3 +44,10 @@ class AccountResource {
         return Response.status(status).entity(e.message).build()
     }
 }
+
+@ServerExceptionMapper
+fun handleIllegalArgumentException(e: IllegalArgumentException): Response {
+    return Response.status(Response.Status.BAD_REQUEST)
+        .entity(mapOf("error" to e.message))
+        .build()
+}

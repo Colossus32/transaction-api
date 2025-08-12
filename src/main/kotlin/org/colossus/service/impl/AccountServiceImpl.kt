@@ -3,56 +3,48 @@ package org.colossus.service.impl
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
+import org.colossus.dto.TransactionEvent
 import org.colossus.dto.TransferRequest
-import org.colossus.exception.AccountNotFoundException
-import org.colossus.exception.InsufficientFundsException
-import org.colossus.exception.InvalidTransferException
-import org.colossus.model.Transaction
 import org.colossus.repository.AccountRepository
-import org.colossus.repository.TransactionRepository
 import org.colossus.service.AccountService
+import org.colossus.service.TransactionProducer
 import java.math.BigDecimal
 
 @ApplicationScoped
 class AccountServiceImpl : AccountService {
-    @Inject
-    lateinit var accountRepository: AccountRepository
 
     @Inject
-    lateinit var transactionRepository: TransactionRepository
+    lateinit var transactionProducer: TransactionProducer
+
+    @Inject
+    lateinit var accountRepository: AccountRepository
 
     override fun getBalance(userId: String): BigDecimal =
         accountRepository.findByUserId(userId)?.balance ?: BigDecimal.ZERO
 
     @Transactional
     override fun transfer(request: TransferRequest) {
-        when {
-            request.amount > BigDecimal.ZERO -> throw InvalidTransferException("Amount must be positive")
-            request.from != request.to -> throw InvalidTransferException("Cannot transfer to yourself")
-        }
+        validateRequest(request)
 
-        val fromAccount = accountRepository.findByUserId(request.from)
-            ?: throw AccountNotFoundException("Sender account not found")
-
-        val toAccount = accountRepository.findByUserId(request.to)
-            ?: throw AccountNotFoundException("Recipient account not found")
-
-        if (fromAccount.balance < request.amount) {
-            throw InsufficientFundsException("Insufficient funds")
-        }
-
-        fromAccount.balance = fromAccount.balance.subtract(request.amount)
-        toAccount.balance = toAccount.balance.add(request.amount)
-
-        accountRepository.save(fromAccount)
-        accountRepository.save(toAccount)
-
-        transactionRepository.save(
-            Transaction().apply {
-                fromUser = request.from
-                toUser = request.to
+        transactionProducer.sendTransaction(
+            TransactionEvent(
+                from = request.from,
+                to = request.to,
                 amount = request.amount
-            }
+            )
         )
+    }
+
+    private fun validateRequest(request: TransferRequest) {
+        // Базовые проверки
+        require(request.amount > BigDecimal.ZERO) { "Amount must be positive" }
+        require(request.from != request.to) { "Cannot transfer to yourself" }
+
+        // Проверка формата ID (пример)
+        require(request.from.matches(Regex("[a-zA-Z0-9_]+"))) { "Invalid sender format" }
+        require(request.to.matches(Regex("[a-zA-Z0-9_]+"))) { "Invalid recipient format" }
+
+        // Проверка максимальной суммы
+        require(request.amount <= BigDecimal("1000000")) { "Amount exceeds limit" }
     }
 }
